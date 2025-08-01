@@ -1,16 +1,17 @@
 const std = @import("std");
 
 pub fn write24BitBMP(file_name: []const u8, comptime width: u32, comptime height: u32, bgra_data: *[width * height * 4]u8) !void {
+    std.fs.cwd().makeDir("examples/output") catch {};
     const file = try std.fs.cwd().createFile(file_name, .{});
     defer file.close();
 
     var writer = file.writer();
 
     // ID
-    _ = try writer.write(&[2]u8{'B', 'M'});
+    _ = try writer.write(&[2]u8{ 'B', 'M' });
 
     const colors_per_line = width * 3;
-    const bytes_per_line = switch(colors_per_line & 0x00000003) {
+    const bytes_per_line = switch (colors_per_line & 0x00000003) {
         0 => colors_per_line,
         else => (colors_per_line | 0x00000003) + 1,
     };
@@ -45,7 +46,7 @@ pub fn write24BitBMP(file_name: []const u8, comptime width: u32, comptime height
             const bgra_pixel_offset = line_offset + (x * 4);
             line_buffer[bgr_pixel_offset] = bgra_data[bgra_pixel_offset];
             line_buffer[bgr_pixel_offset + 1] = bgra_data[bgra_pixel_offset + 1];
-            line_buffer[bgr_pixel_offset + 2] = bgra_data[bgra_pixel_offset + 2]; 
+            line_buffer[bgr_pixel_offset + 2] = bgra_data[bgra_pixel_offset + 2];
         }
         _ = try writer.write(&line_buffer);
     }

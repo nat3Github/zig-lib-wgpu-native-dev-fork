@@ -37,10 +37,10 @@ fn link_windows_system_libraries(comptime T: type, mod: *T, is_gnu: bool) void {
     linkSystemLibrary(mod, "propsys", .{});
 }
 
-fn link_mac_frameworks(mod: *std.Build.Step.Compile) void {
-    mod.linkFramework("Foundation");
-    mod.linkFramework("QuartzCore");
-    mod.linkFramework("Metal");
+fn link_mac_frameworks(mod: *std.Build.Module) void {
+    mod.linkFramework("Foundation", .{});
+    // mod.linkFramework("QuartzCore");
+    mod.linkFramework("Metal", .{});
 }
 
 const WGPUBuildContext = struct {
@@ -178,29 +178,30 @@ const WGPUBuildContext = struct {
 
             // This only tries to account for linux/macos since we're using pre-compiled wgpu-native;
             // need to think harder about this if I get custom builds working.
-            else => if (link_mode == .static) {
-                libwgpu_path = wgpu_dep.path("lib/libwgpu_native.a");
-            } else if (target_res.os.tag == .macos or target_res.os.tag == .ios) { // TODO: This is just guesswork, need to test it somehow, but I don't have a mac.
-                is_mac = true;
-                const dylib_install_file = b.addInstallLibFile(wgpu_dep.path("lib/libwgpu_native.dylib"), "libwgpu_native.dylib");
-                b.getInstallStep().dependOn(&dylib_install_file.step);
+            else => {
+                if (link_mode == .static) {
+                    libwgpu_path = wgpu_dep.path("lib/libwgpu_native.a");
+                    link_mac_frameworks(wgpu_mod);
+                } else if (target_res.os.tag == .macos or target_res.os.tag == .ios) { // TODO: This is just guesswork, need to test it somehow, but I don't have a mac.
+                    is_mac = true;
+                    const dylib_install_file = b.addInstallLibFile(wgpu_dep.path("lib/libwgpu_native.dylib"), "libwgpu_native.dylib");
+                    b.getInstallStep().dependOn(&dylib_install_file.step);
 
-                const writeFiles = b.addNamedWriteFiles("lib");
-                _ = writeFiles.addCopyFile(wgpu_dep.path("lib/libwgpu_native.dylib"), "libwgpu_native.dylib");
-            } else {
-                const so_install_file = b.addInstallLibFile(wgpu_dep.path("lib/libwgpu_native.so"), "libwgpu_native.so");
-                b.getInstallStep().dependOn(&so_install_file.step);
+                    const writeFiles = b.addNamedWriteFiles("lib");
+                    _ = writeFiles.addCopyFile(wgpu_dep.path("lib/libwgpu_native.dylib"), "libwgpu_native.dylib");
+                } else {
+                    const so_install_file = b.addInstallLibFile(wgpu_dep.path("lib/libwgpu_native.so"), "libwgpu_native.so");
+                    b.getInstallStep().dependOn(&so_install_file.step);
 
-                const writeFiles = b.addNamedWriteFiles("lib");
-                _ = writeFiles.addCopyFile(wgpu_dep.path("lib/libwgpu_native.so"), "libwgpu_native.so");
+                    const writeFiles = b.addNamedWriteFiles("lib");
+                    _ = writeFiles.addCopyFile(wgpu_dep.path("lib/libwgpu_native.so"), "libwgpu_native.so");
+                }
             },
         }
-
         if (libwgpu_path != null) {
             wgpu_mod.addObjectFile(libwgpu_path.?);
             wgpu_c_mod.addObjectFile(libwgpu_path.?);
         }
-
         return WGPUBuildContext{
             .link_mode = link_mode,
             .target = target,
@@ -257,7 +258,6 @@ fn triangle_example(b: *std.Build, context: *const WGPUBuildContext) void {
 
     if (context.link_mode == .dynamic) {
         dynamic_link(context, triangle_example_exe, run_triangle_cmd);
-
         run_triangle_cmd.step.dependOn(b.getInstallStep());
     }
 }
@@ -301,10 +301,6 @@ fn unit_tests(b: *std.Build, context: *const WGPUBuildContext) void {
         }
 
         const run_test = b.addRunArtifact(t);
-
-        if (context.is_mac) {
-            link_mac_frameworks(t);
-        }
 
         if (context.link_mode == .dynamic) {
             dynamic_link(context, t, run_test);
@@ -359,11 +355,6 @@ fn compute_tests(b: *std.Build, context: *const WGPUBuildContext) void {
 
         run_compute_test.step.dependOn(b.getInstallStep());
         run_compute_test_c.step.dependOn(b.getInstallStep());
-    }
-
-    if (context.is_mac) {
-        link_mac_frameworks(compute_test);
-        link_mac_frameworks(compute_test_c);
     }
 
     compute_test_step.dependOn(&run_compute_test.step);
