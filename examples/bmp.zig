@@ -1,7 +1,6 @@
 const std = @import("std");
 
 pub fn write24BitBMP(file_name: []const u8, comptime width: u32, comptime height: u32, bgra_data: *[width * height * 4]u8) !void {
-    std.fs.cwd().makeDir("examples/output") catch {};
     const file = try std.fs.cwd().createFile(file_name, .{});
     defer file.close();
 
