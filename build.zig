@@ -54,8 +54,22 @@ pub fn disable_rt_for_msvc(exe: *std.Build.Step.Compile) void {
         exe.bundle_ubsan_rt = false;
     }
 }
+fn quick_link(t: *std.Build.Step.Compile, link_mode: std.builtin.LinkMode, lp: std.Build.LazyPath) void {
+    if (link_mode == .dynamic) {
+        // normally here you would add a build step to copy all your shared libraries to
+        // a specific folder for distribution
+        // you would tell the executable to where to find the executable the shared library with
+        // exe.addRPath(...);
 
-fn triangle_example(b: *std.Build, wgpu_mod: *std.Build.Module, link_mode: std.builtin.LinkMode, lp: std.Build.LazyPath) void {
+        // this is just quick and dirty to test the thing
+        t.addObjectFile(lp);
+        t.addRPath(lp.dirname());
+    }
+    // (nat3): cant test this since i am a mac user
+    disable_rt_for_msvc(t);
+}
+
+fn triangle_example(b: *std.Build, wgpu_mod: *std.Build.Module, link_mode: std.builtin.LinkMode, lp: std.Build.LazyPath) *std.Build.Step {
     const bmp_mod = b.createModule(.{
         .root_source_file = b.path("examples/bmp.zig"),
     });
@@ -70,24 +84,11 @@ fn triangle_example(b: *std.Build, wgpu_mod: *std.Build.Module, link_mode: std.b
     const run_triangle_cmd = b.addRunArtifact(triangle_example_exe);
     const run_triangle_step = b.step("run-triangle-example", "Run the triangle example");
     run_triangle_step.dependOn(&run_triangle_cmd.step);
-
-    if (link_mode == .dynamic) {
-        quick_link(triangle_example_exe, lp);
-    }
-}
-fn quick_link(t: *std.Build.Step.Compile, lp: std.Build.LazyPath) void {
-    // normally here you would add a build step to copy all your shared libraries to
-    // a specific folder for distribution
-    // you would tell the executable to where to find the executable the shared library with
-    // exe.addRPath(...);
-
-    // this is just quick and dirty to test the thing
-    t.addObjectFile(lp);
-    // (nat3): cant test this since i am a mac user
-    disable_rt_for_msvc(t);
+    quick_link(triangle_example_exe, link_mode, lp);
+    return run_triangle_step;
 }
 
-fn unit_tests(b: *std.Build, wgpu_mod: *std.Build.Module, link_mode: std.builtin.LinkMode, lp: std.Build.LazyPath) void {
+fn unit_tests(b: *std.Build, wgpu_mod: *std.Build.Module, link_mode: std.builtin.LinkMode, lp: std.Build.LazyPath) *std.Build.Step {
     const unit_test_step = b.step("test", "Run unit tests");
     const test_files = [_][:0]const u8{
         "src/instance.zig",
@@ -110,13 +111,12 @@ fn unit_tests(b: *std.Build, wgpu_mod: *std.Build.Module, link_mode: std.builtin
         // handle_rt(context, t);
         const run_test = b.addRunArtifact(t);
         unit_test_step.dependOn(&run_test.step);
-        if (link_mode == .dynamic) {
-            quick_link(t, lp);
-        }
+        quick_link(t, link_mode, lp);
     }
+    return unit_test_step;
 }
 
-fn compute_tests(b: *std.Build, wgpu_mod: *std.Build.Module, wgpu_c_mod: *std.Build.Module, link_mode: std.builtin.LinkMode, lp: std.Build.LazyPath) void {
+fn compute_tests(b: *std.Build, wgpu_mod: *std.Build.Module, wgpu_c_mod: *std.Build.Module, link_mode: std.builtin.LinkMode, lp: std.Build.LazyPath) *std.Build.Step {
     const compute_test_step = b.step("compute-tests", "Run compute shader tests");
 
     const compute_test = b.addTest(.{
@@ -141,10 +141,9 @@ fn compute_tests(b: *std.Build, wgpu_mod: *std.Build.Module, wgpu_c_mod: *std.Bu
     const run_compute_test_c = b.addRunArtifact(compute_test_c);
     compute_test_step.dependOn(&run_compute_test_c.step);
 
-    if (link_mode == .dynamic) {
-        quick_link(compute_test, lp);
-        quick_link(compute_test_c, lp);
-    }
+    quick_link(compute_test, link_mode, lp);
+    quick_link(compute_test_c, link_mode, lp);
+    return compute_test_step;
 }
 
 // Although this function looks imperative, note that its job is to
@@ -200,19 +199,20 @@ pub fn build(b: *std.Build) void {
     const extension: []const u8 =
         if (link_mode == .static)
             switch (target.result.os.tag) {
-                .windows => "dll",
-                .macos, .ios => "dylib",
-                else => "so",
+                .windows => "lib",
+                else => "a",
             }
         else switch (target.result.os.tag) {
-            .windows => "lib",
-            else => "a",
+            .windows => "dll",
+            .macos, .ios => "dylib",
+            else => "so",
         };
     const prefix = switch (target.result.os.tag) {
         .windows => "",
         else => "lib",
     };
     const lib_name = b.fmt("lib/{s}wgpu_native.{s}", .{ prefix, extension });
+
     const wgpu_native_lib = wgpu_dep.path(lib_name);
 
     if (link_mode == .static) {
@@ -221,10 +221,16 @@ pub fn build(b: *std.Build) void {
     } else {
         b.addNamedLazyPath("libwgpu_native", wgpu_native_lib);
     }
-    compute_tests(b, wgpu_mod, wgpu_c_mod, link_mode, wgpu_native_lib);
-    unit_tests(b, wgpu_mod, link_mode, wgpu_native_lib);
-    triangle_example(b, wgpu_mod, link_mode, wgpu_native_lib);
+    const compute_tests_step = compute_tests(b, wgpu_mod, wgpu_c_mod, link_mode, wgpu_native_lib);
+    const unit_tests_step = unit_tests(b, wgpu_mod, link_mode, wgpu_native_lib);
+    const triangle_example_step = triangle_example(b, wgpu_mod, link_mode, wgpu_native_lib);
+
+    const step_all = b.step("all", "run everything");
+    step_all.dependOn(compute_tests_step);
+    step_all.dependOn(unit_tests_step);
+    step_all.dependOn(triangle_example_step);
 }
+
 pub fn get_wgpu_dep(b: *std.Build, target: std.Build.ResolvedTarget, optimize: std.builtin.OptimizeMode) *std.Build.Dependency {
     const target_res = target.result;
     const os_str = @tagName(target_res.os.tag);
