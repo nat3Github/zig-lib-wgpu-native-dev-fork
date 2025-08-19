@@ -193,9 +193,8 @@ pub fn build(b: *std.Build) void {
     }
     // this is the lazy path to the .dll / .dylib / .so
     // its added for users of this module dependency under the name "lib"
-    // you can get it with `.namedLazyPath("lib")`
+    // you can get it with `.namedLazyPath("libwgpu_native")`
 
-    // NOTE: on windows the objects dont have the "lib" prefix!
     const extension: []const u8 =
         if (link_mode == .static)
             switch (target.result.os.tag) {
@@ -207,6 +206,7 @@ pub fn build(b: *std.Build) void {
             .macos, .ios => "dylib",
             else => "so",
         };
+    // NOTE: on windows the objects from rust dont have the "lib" prefix!
     const prefix = switch (target.result.os.tag) {
         .windows => "",
         else => "lib",
