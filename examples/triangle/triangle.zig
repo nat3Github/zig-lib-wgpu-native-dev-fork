@@ -162,7 +162,7 @@ pub fn main() !void {
         defer staging_buffer.unmap();
 
         const output = buf[0..output_size];
-        std.fs.cwd().makeDir("examples/output") catch {};
+        try std.fs.cwd().makePath("examples/output");
         try bmp.write24BitBMP("examples/output/triangle.bmp", output_extent.width, output_extent.height, output);
     }
 }
